@@ -1,0 +1,41 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Node
+node_modules/
+dist/
+.vite/
+*.log
+
+# ML artifacts (large files)
+artifacts/model/
+artifacts/checkpoints/
+*.pt
+*.bin
+*.safetensors
+wandb/
+runs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Secrets
+*.env
+.env.local
