@@ -34,6 +34,7 @@ from sqlalchemy import (
 from sqlalchemy.engine import Dialect
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from src.errors import PersistenceError
 from src.schemas import Prediction, Ticket
@@ -120,11 +121,18 @@ def make_engine(url: str) -> Engine:
     For SQLite, enables `check_same_thread=False` so a single engine can be
     safely shared across FastAPI's threadpool. Concurrency safety is provided
     by per-request sessions (T-019), not by SQLite's default locking.
+
+    For in-memory SQLite (``:memory:``), uses ``StaticPool`` so all connections
+    share the same database — otherwise each connection sees an empty DB and
+    ``init_db`` tables are invisible to subsequent sessions.
     """
     connect_args: dict[str, object] = {}
+    kwargs: dict[str, object] = {"future": True, "connect_args": connect_args}
     if url.startswith("sqlite"):
         connect_args["check_same_thread"] = False
-    return create_engine(url, future=True, connect_args=connect_args)
+        if ":memory:" in url:
+            kwargs["poolclass"] = StaticPool
+    return create_engine(url, **kwargs)
 
 
 def make_session(engine: Engine) -> sessionmaker[Session]:
@@ -139,7 +147,7 @@ def make_session(engine: Engine) -> sessionmaker[Session]:
 def init_db(engine: Engine) -> None:
     """Idempotently create all tables on the given engine.
 
-    Equivalent to running the Alembic baseline migration but faster ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â used
+    Equivalent to running the Alembic baseline migration but faster ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â used
     in tests and as a first-run convenience. Production deploys should use
     `alembic upgrade head` for proper migration tracking.
     """

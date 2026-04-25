@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import traceback
-from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
@@ -13,18 +13,17 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
 from ulid import ULID
 
-from src.config import Settings, get_settings
+from src.config import get_settings
 from src.errors import AppError, IntentNotInRoutingError
 from src.logging_config import configure_logging
 from src.persistence import init_db, make_engine, make_session
 from src.predict import Classifier
 from src.routing import load_routing_rules
-from src.schemas import RoutingRule
+from src.schemas import ClassifyRequest, ClassifyResponse, RoutingRule
 
 logger = structlog.get_logger(__name__)
 
@@ -75,7 +74,7 @@ def register_middleware(app: FastAPI) -> None:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    # CorrelationIdMiddleware wraps CORS ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â added last, runs first.
+    # CorrelationIdMiddleware wraps CORS ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â added last, runs first.
     app.add_middleware(CorrelationIdMiddleware)
 
 
@@ -238,23 +237,50 @@ def health(request: Request) -> dict[str, object]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Dependency providers
-# ---------------------------------------------------------------------------
+@app.post("/classify")
+def classify_message(
+    request: Request,
+    body: ClassifyRequest,
+) -> ClassifyResponse:
+    """Classify a customer message and persist the resulting ticket."""
+    import time as _time
 
+    import structlog as _structlog
 
-def get_settings_dep() -> Settings:
-    return get_settings()
+    from src.persistence import save_ticket
+    from src.routing import build_ticket
+    from src.schemas import ClassifyResponse
 
+    _log = _structlog.get_logger(__name__)
+    t0 = _time.perf_counter()
 
-def get_classifier(request: Request) -> Classifier:
-    return request.app.state.classifier  # type: ignore[no-any-return]
+    classifier: Classifier = request.app.state.classifier
+    rules: dict[str, RoutingRule] = request.app.state.routing_rules
+    session_factory = request.app.state.session_factory
 
+    prediction = classifier.classify(body.message)
+    ticket = build_ticket(prediction, rules, classifier.model_version)
 
-def get_routing_rules(request: Request) -> dict[str, RoutingRule]:
-    return request.app.state.routing_rules  # type: ignore[no-any-return]
+    with session_factory() as session:
+        saved = save_ticket(
+            session,
+            ticket,
+            message=body.message,
+            prediction=prediction,
+            model_version=classifier.model_version,
+        )
 
+    latency_ms = round((_time.perf_counter() - t0) * 1000, 1)
+    _log.info(
+        "classify",
+        intent=prediction.intent,
+        confidence=prediction.confidence,
+        latency_ms=latency_ms,
+    )
 
-def get_session(request: Request) -> Generator[Session, None, None]:
-    with request.app.state.session_factory() as session:
-        yield session
+    return ClassifyResponse(
+        intent=prediction.intent,
+        confidence=prediction.confidence,
+        top_k=prediction.top_k,
+        ticket=saved,
+    )
