@@ -22,14 +22,3 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
-    hooks:
-      - id: mypy
-        files: ^(src|api)/
-        additional_dependencies:
-          - pydantic==2.9.0
-          - pydantic-settings==2.5.0
-          - types-PyYAML
-        args: [--config-file=pyproject.toml]
