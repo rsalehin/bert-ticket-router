@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 import yaml
 
+from src.errors import IntentNotInRoutingError
 from src.errors import ValidationError as AppValidationError
-from src.routing import load_routing_rules
-from src.schemas import RoutingRule
+from src.routing import build_ticket, load_routing_rules
+from src.schemas import IntentScore, Prediction, RoutingRule, Ticket
 
 # ---------- Helpers ----------
 
@@ -30,7 +32,7 @@ VALID_ENTRY = {
 }
 
 
-# ---------- Happy path ----------
+# ---------- load_routing_rules: happy path ----------
 
 
 class TestLoadRoutingRulesHappyPath:
@@ -42,7 +44,6 @@ class TestLoadRoutingRulesHappyPath:
                 {**VALID_ENTRY, "intent": "lost_or_stolen_card", "priority": "P1", "sla_hours": 1},
             ],
         )
-
         rules = load_routing_rules(path)
         assert set(rules.keys()) == {"card_arrival", "lost_or_stolen_card"}
 
@@ -57,16 +58,14 @@ class TestLoadRoutingRulesHappyPath:
         assert rule.tags == ["card", "delivery"]
 
     def test_loads_real_repo_routing_yaml(self) -> None:
-        """The committed configs/routing.yaml must load and produce 77 rules."""
         rules = load_routing_rules(Path("configs/routing.yaml"))
         assert len(rules) == 77
-        # Spot-check a couple of well-known intents
         assert "card_arrival" in rules
         assert "lost_or_stolen_card" in rules
         assert rules["lost_or_stolen_card"].priority == "P1"
 
 
-# ---------- Failure modes ----------
+# ---------- load_routing_rules: failure modes ----------
 
 
 class TestLoadRoutingRulesErrors:
@@ -117,5 +116,103 @@ class TestLoadRoutingRulesErrors:
         path = _write_yaml(tmp_path, [bad])
         with pytest.raises(AppValidationError) as info:
             load_routing_rules(path)
-        # Helpful errors quote the intent name
         assert "weird_intent" in str(info.value)
+
+
+# ---------- build_ticket helpers ----------
+
+
+def _sample_prediction(intent: str = "card_arrival") -> Prediction:
+    return Prediction(
+        intent=intent,
+        confidence=0.9,
+        top_k=[
+            IntentScore(intent=intent, confidence=0.9),
+            IntentScore(intent="card_delivery_estimate", confidence=0.07),
+            IntentScore(intent="lost_or_stolen_card", confidence=0.03),
+        ],
+    )
+
+
+def _sample_rules() -> dict[str, RoutingRule]:
+    return {
+        "card_arrival": RoutingRule(
+            intent="card_arrival",
+            department="Cards",
+            priority="P3",
+            sla_hours=24,
+            tags=["card", "delivery"],
+        ),
+        "lost_or_stolen_card": RoutingRule(
+            intent="lost_or_stolen_card",
+            department="Security",
+            priority="P1",
+            sla_hours=1,
+            tags=["card", "security", "fraud"],
+        ),
+    }
+
+
+# ---------- build_ticket: happy path ----------
+
+
+class TestBuildTicketHappyPath:
+    def test_returns_ticket_with_routing_fields_populated(self) -> None:
+        prediction = _sample_prediction("card_arrival")
+        rules = _sample_rules()
+        ticket = build_ticket(prediction, rules, model_version="bert@v0.1.0")
+
+        assert isinstance(ticket, Ticket)
+        assert ticket.department == "Cards"
+        assert ticket.priority == "P3"
+        assert ticket.sla_hours == 24
+        assert ticket.tags == ["card", "delivery"]
+
+    def test_id_is_26_char_ulid(self) -> None:
+        prediction = _sample_prediction("card_arrival")
+        rules = _sample_rules()
+        ticket = build_ticket(prediction, rules, model_version="bert@v0.1.0")
+
+        assert isinstance(ticket.id, str)
+        assert len(ticket.id) == 26
+        assert ticket.id.isalnum()
+        assert ticket.id.upper() == ticket.id
+
+    def test_created_at_is_utc_and_recent(self) -> None:
+        prediction = _sample_prediction("card_arrival")
+        rules = _sample_rules()
+        before = datetime.now(UTC)
+        ticket = build_ticket(prediction, rules, model_version="bert@v0.1.0")
+        after = datetime.now(UTC)
+
+        assert ticket.created_at.tzinfo is not None
+        assert ticket.created_at.utcoffset() == timedelta(0)
+        assert before <= ticket.created_at <= after
+
+    def test_two_calls_produce_distinct_ids(self) -> None:
+        prediction = _sample_prediction("card_arrival")
+        rules = _sample_rules()
+        a = build_ticket(prediction, rules, model_version="bert@v0.1.0")
+        b = build_ticket(prediction, rules, model_version="bert@v0.1.0")
+        assert a.id != b.id
+
+    def test_routes_security_intent_to_p1(self) -> None:
+        prediction = _sample_prediction("lost_or_stolen_card")
+        rules = _sample_rules()
+        ticket = build_ticket(prediction, rules, model_version="bert@v0.1.0")
+
+        assert ticket.department == "Security"
+        assert ticket.priority == "P1"
+        assert ticket.sla_hours == 1
+
+
+# ---------- build_ticket: errors ----------
+
+
+class TestBuildTicketErrors:
+    def test_unknown_intent_raises_intent_not_in_routing(self) -> None:
+        prediction = _sample_prediction("not_a_real_intent")
+        rules = _sample_rules()
+        with pytest.raises(IntentNotInRoutingError) as info:
+            build_ticket(prediction, rules, model_version="bert@v0.1.0")
+        assert "not_a_real_intent" in str(info.value)

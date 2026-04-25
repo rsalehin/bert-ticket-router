@@ -13,13 +13,15 @@ layer can map them to a 400 response via the standard exception handler.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
 from pydantic import ValidationError as PydanticValidationError
+from ulid import ULID
 
-from src.errors import ValidationError
-from src.schemas import RoutingRule
+from src.errors import IntentNotInRoutingError, ValidationError
+from src.schemas import Prediction, RoutingRule, Ticket
 
 
 def load_routing_rules(path: Path | str) -> dict[str, RoutingRule]:
@@ -74,3 +76,46 @@ def load_routing_rules(path: Path | str) -> dict[str, RoutingRule]:
         rules[rule.intent] = rule
 
     return rules
+
+
+def build_ticket(
+    prediction: Prediction,
+    rules: dict[str, RoutingRule],
+    model_version: str,
+) -> Ticket:
+    """Assemble a `Ticket` from a model prediction and the routing rules.
+
+    Args:
+        prediction: Output of `Classifier.classify(...)`.
+        rules: Map from intent -> RoutingRule, as returned by
+            `load_routing_rules`.
+        model_version: Audit string identifying the model that produced
+            `prediction`. Stored on the persisted DB row by the persistence
+            layer; not currently surfaced on the API-facing `Ticket`.
+
+    Returns:
+        A populated `Ticket` with a freshly generated ULID id, UTC
+        `created_at`, and routing fields copied from the matching rule.
+
+    Raises:
+        IntentNotInRoutingError: If `prediction.intent` has no rule in
+            `rules`. The error message names the offending intent.
+    """
+    # `model_version` is accepted for forward compatibility (audit trail at
+    # the persistence layer). It is not persisted on the API-facing Ticket.
+    _ = model_version
+
+    rule = rules.get(prediction.intent)
+    if rule is None:
+        raise IntentNotInRoutingError(
+            f"No routing rule for predicted intent: {prediction.intent!r}"
+        )
+
+    return Ticket(
+        id=str(ULID()),
+        department=rule.department,
+        priority=rule.priority,
+        sla_hours=rule.sla_hours,
+        tags=list(rule.tags),
+        created_at=datetime.now(UTC),
+    )
