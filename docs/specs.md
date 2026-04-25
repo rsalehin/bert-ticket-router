@@ -85,7 +85,7 @@ and tags.
 
 ## 7. Constraints
 
-- **Stack (hard):** Python 3.11+, PyTorch, HuggingFace Transformers, FastAPI,
+- **Stack (hard):** Python 3.12+, PyTorch, HuggingFace Transformers, FastAPI,
   SQLite (dev) via SQLAlchemy ORM, React + Vite + TypeScript + Tailwind.
 - **Training environment:** Google Colab Pro, A100 GPU.
 - **Serving environment:** local machine only, no cloud.
