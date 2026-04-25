@@ -160,3 +160,44 @@ def make_splits(
             "test": dataset["test"],
         }
     )
+
+
+def tokenize_batch(
+    examples: dict[str, list[object]],
+    tokenizer: object,
+    max_len: int = 64,
+) -> dict[str, list[object]]:
+    """Tokenize a batch of examples for BERT.
+
+    Designed for use with `datasets.Dataset.map(..., batched=True)`. The input
+    is a batch dict with at least keys `text` and `label`. The output mirrors
+    that contract: lists of equal length under `input_ids`, `attention_mask`,
+    and `label`.
+
+    Args:
+        examples: Batch dict with `text: list[str]` and `label: list[int]`.
+        tokenizer: A HuggingFace `PreTrainedTokenizerBase` (typed as `object`
+            to avoid a hard import dependency for callers that pass a stub).
+        max_len: Fixed length for output sequences. Inputs longer than this are
+            truncated; shorter inputs are padded with the tokenizer's PAD token.
+
+    Returns:
+        Dict with `input_ids: list[list[int]]`, `attention_mask: list[list[int]]`,
+        and `label: list[int]` (passed through unchanged).
+    """
+    if not examples["text"]:
+        # HuggingFace fast tokenizer raises on empty batches; short-circuit.
+        return {"input_ids": [], "attention_mask": [], "label": list(examples["label"])}
+
+    encoded = tokenizer(  # type: ignore[operator]
+        examples["text"],
+        max_length=max_len,
+        padding="max_length",
+        truncation=True,
+        return_attention_mask=True,
+    )
+    return {
+        "input_ids": encoded["input_ids"],
+        "attention_mask": encoded["attention_mask"],
+        "label": examples["label"],
+    }

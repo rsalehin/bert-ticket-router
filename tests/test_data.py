@@ -167,3 +167,116 @@ class TestMakeSplitsOnBanking77:
         assert len(splits["train"]) + len(splits["val"]) == 10003
         assert 950 <= len(splits["val"]) <= 1050
         assert len(splits["test"]) == 3080
+
+
+# ---------- T-009: tokenize_batch ----------
+
+
+@pytest.mark.slow
+class TestTokenizeBatch:
+    """Tokenization with real BERT-base-uncased tokenizer."""
+
+    def test_returns_required_keys(self, bert_tokenizer: object) -> None:
+        from src.data import tokenize_batch
+
+        out = tokenize_batch(
+            {"text": ["hello world"], "label": [0]},
+            bert_tokenizer,
+            max_len=64,
+        )
+        assert set(out.keys()) >= {"input_ids", "attention_mask", "label"}
+
+    def test_shape_is_batch_by_max_len(self, bert_tokenizer: object) -> None:
+        from src.data import tokenize_batch
+
+        out = tokenize_batch(
+            {"text": ["hello", "world", "this is a test"], "label": [0, 1, 2]},
+            bert_tokenizer,
+            max_len=16,
+        )
+        assert len(out["input_ids"]) == 3
+        for ids in out["input_ids"]:
+            assert len(ids) == 16
+        for mask in out["attention_mask"]:
+            assert len(mask) == 16
+
+    def test_long_input_truncated(self, bert_tokenizer: object) -> None:
+        from src.data import tokenize_batch
+
+        long_text = "lorem ipsum " * 200  # ~400 tokens before truncation
+        out = tokenize_batch(
+            {"text": [long_text], "label": [0]},
+            bert_tokenizer,
+            max_len=32,
+        )
+        assert len(out["input_ids"][0]) == 32
+
+    def test_short_input_padded_with_pad_token(self, bert_tokenizer: object) -> None:
+        from src.data import tokenize_batch
+
+        pad_id = bert_tokenizer.pad_token_id  # type: ignore[attr-defined]
+        out = tokenize_batch(
+            {"text": ["hi"], "label": [0]},
+            bert_tokenizer,
+            max_len=32,
+        )
+        ids = out["input_ids"][0]
+        # First few tokens are real ([CLS] hi [SEP]); the tail must be pad
+        assert ids[-1] == pad_id
+        assert ids[-2] == pad_id
+
+    def test_attention_mask_marks_padding(self, bert_tokenizer: object) -> None:
+        from src.data import tokenize_batch
+
+        out = tokenize_batch(
+            {"text": ["hi"], "label": [0]},
+            bert_tokenizer,
+            max_len=32,
+        )
+        mask = out["attention_mask"][0]
+        # Sum of mask == number of real tokens (small, less than 32)
+        real = sum(mask)
+        assert 0 < real < 32
+        # Trailing positions must all be 0
+        assert mask[-1] == 0
+
+    def test_label_passthrough(self, bert_tokenizer: object) -> None:
+        from src.data import tokenize_batch
+
+        out = tokenize_batch(
+            {"text": ["a", "b", "c"], "label": [7, 42, 76]},
+            bert_tokenizer,
+            max_len=16,
+        )
+        assert list(out["label"]) == [7, 42, 76]
+
+    def test_mixed_length_batch(self, bert_tokenizer: object) -> None:
+        from src.data import tokenize_batch
+
+        out = tokenize_batch(
+            {
+                "text": [
+                    "hi",
+                    "this is a much longer sentence with more tokens than the previous one",
+                    "medium",
+                ],
+                "label": [0, 1, 2],
+            },
+            bert_tokenizer,
+            max_len=24,
+        )
+        # All output rows must have the same length (max_len)
+        assert all(len(ids) == 24 for ids in out["input_ids"])
+        assert all(len(m) == 24 for m in out["attention_mask"])
+
+    def test_empty_batch(self, bert_tokenizer: object) -> None:
+        from src.data import tokenize_batch
+
+        out = tokenize_batch(
+            {"text": [], "label": []},
+            bert_tokenizer,
+            max_len=16,
+        )
+        assert out["input_ids"] == []
+        assert out["attention_mask"] == []
+        assert list(out["label"]) == []
