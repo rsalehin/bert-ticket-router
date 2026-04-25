@@ -1,122 +1,78 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState, useEffect } from "react";
+import MessageInput from "./components/MessageInput";
+import TicketCard from "./components/TicketCard";
+import { getHealth, classify, ApiError, NetworkError } from "./lib/api";
+import type { ClassifyResponse, HealthResponse } from "./lib/api";
 
-function App() {
-  const [count, setCount] = useState(0)
-
+function ErrorBanner({ message }: { message: string }) {
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+    <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      {message}
+    </div>
+  );
 }
 
-export default App
+export default function App() {
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [result, setResult] = useState<ClassifyResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getHealth()
+      .then(setHealth)
+      .catch((err) => {
+        const msg =
+          err instanceof ApiError
+            ? `Backend error: ${err.message}`
+            : err instanceof NetworkError
+              ? "Cannot reach backend. Is the server running?"
+              : "Health check failed.";
+        setError(msg);
+      });
+  }, []);
+
+  async function handleSubmit(message: string) {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await classify(message);
+      setResult(data);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? `${err.code}: ${err.message}`
+          : err instanceof NetworkError
+            ? "Network error. Is the server running?"
+            : "Classification failed.";
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-10 px-4">
+      <div className="mx-auto max-w-2xl flex flex-col gap-6">
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">BERT Ticket Router</h1>
+          {health && (
+            <p className="mt-1 text-xs text-gray-400">
+              Model: {health.model_version} · {health.device} · {health.num_labels} intents
+            </p>
+          )}
+        </div>
+
+        {/* Error banner */}
+        {error && <ErrorBanner message={error} />}
+
+        {/* Input */}
+        <MessageInput onSubmit={handleSubmit} loading={loading} />
+
+        {/* Result */}
+        {result && <TicketCard result={result} />}
+      </div>
+    </div>
+  );
+}
