@@ -75,7 +75,7 @@ def register_middleware(app: FastAPI) -> None:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    # CorrelationIdMiddleware wraps CORS Ã¢â‚¬â€ added last, runs first.
+    # CorrelationIdMiddleware wraps CORS ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â added last, runs first.
     app.add_middleware(CorrelationIdMiddleware)
 
 
@@ -213,6 +213,29 @@ app = FastAPI(
 
 register_middleware(app)
 register_exception_handlers(app)
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/health")
+def health(request: Request) -> dict[str, object]:
+    """Return server and model status."""
+    from datetime import UTC, datetime
+
+    classifier: Classifier = request.app.state.classifier
+    started_at: datetime = request.app.state.started_at
+    uptime = (datetime.now(UTC) - started_at).total_seconds()
+
+    return {
+        "status": "ok",
+        "model_version": classifier.model_version,
+        "device": classifier.device,
+        "num_labels": classifier.num_labels,
+        "uptime_seconds": round(uptime, 3),
+    }
 
 
 # ---------------------------------------------------------------------------
