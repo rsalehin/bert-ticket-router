@@ -49,6 +49,7 @@ dev = [
     "mypy==1.11.2",
     "pre-commit==3.8.0",
     "types-PyYAML",
+    "nbformat==5.10.4",
 ]
 
 [tool.setuptools]
