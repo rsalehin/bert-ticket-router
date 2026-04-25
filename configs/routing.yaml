@@ -1,0 +1,479 @@
+# Routing rules for the BERT ticket router.
+# One entry per banking77 intent (77 total).
+#
+# Schema (per entry):
+#   intent      : banking77 intent label (string)
+#   department  : Cards | Transfers | Account | Security | Top-ups | General
+#   priority    : P1 (security/fraud) | P2 (blocked or failed) | P3 (informational)
+#   sla_hours   : positive integer
+#   tags        : 2-4 short keyword strings
+#
+# Tested by tests/test_routing_config.py.
+
+# ---------------- Security (P1) -----------------------------------------
+- intent: lost_or_stolen_card
+  department: Security
+  priority: P1
+  sla_hours: 1
+  tags: [card, security, fraud]
+
+- intent: lost_or_stolen_phone
+  department: Security
+  priority: P1
+  sla_hours: 1
+  tags: [account, security, device]
+
+- intent: compromised_card
+  department: Security
+  priority: P1
+  sla_hours: 1
+  tags: [card, security, fraud]
+
+- intent: card_swallowed
+  department: Security
+  priority: P1
+  sla_hours: 2
+  tags: [card, atm, security]
+
+- intent: cash_withdrawal_not_recognised
+  department: Security
+  priority: P1
+  sla_hours: 2
+  tags: [withdrawal, security, fraud]
+
+- intent: card_payment_not_recognised
+  department: Security
+  priority: P1
+  sla_hours: 2
+  tags: [card, security, fraud]
+
+- intent: direct_debit_payment_not_recognised
+  department: Security
+  priority: P1
+  sla_hours: 2
+  tags: [direct-debit, security, fraud]
+
+- intent: pin_blocked
+  department: Security
+  priority: P1
+  sla_hours: 4
+  tags: [card, security, pin]
+
+- intent: passcode_forgotten
+  department: Security
+  priority: P2
+  sla_hours: 4
+  tags: [account, security, access]
+
+# ---------------- Cards ------------------------------------------------
+- intent: activate_my_card
+  department: Cards
+  priority: P2
+  sla_hours: 8
+  tags: [card, activation, access]
+
+- intent: card_arrival
+  department: Cards
+  priority: P3
+  sla_hours: 24
+  tags: [card, delivery, shipping]
+
+- intent: card_delivery_estimate
+  department: Cards
+  priority: P3
+  sla_hours: 24
+  tags: [card, delivery, info]
+
+- intent: card_about_to_expire
+  department: Cards
+  priority: P3
+  sla_hours: 24
+  tags: [card, expiry, renewal]
+
+- intent: card_acceptance
+  department: Cards
+  priority: P3
+  sla_hours: 24
+  tags: [card, acceptance, info]
+
+- intent: card_linking
+  department: Cards
+  priority: P3
+  sla_hours: 24
+  tags: [card, linking, account]
+
+- intent: card_not_working
+  department: Cards
+  priority: P2
+  sla_hours: 4
+  tags: [card, failure, access]
+
+- intent: contactless_not_working
+  department: Cards
+  priority: P2
+  sla_hours: 8
+  tags: [card, contactless, failure]
+
+- intent: change_pin
+  department: Cards
+  priority: P2
+  sla_hours: 8
+  tags: [card, pin, security]
+
+- intent: get_disposable_virtual_card
+  department: Cards
+  priority: P3
+  sla_hours: 12
+  tags: [card, virtual, disposable]
+
+- intent: get_physical_card
+  department: Cards
+  priority: P3
+  sla_hours: 24
+  tags: [card, physical, request]
+
+- intent: getting_spare_card
+  department: Cards
+  priority: P3
+  sla_hours: 24
+  tags: [card, spare, request]
+
+- intent: getting_virtual_card
+  department: Cards
+  priority: P3
+  sla_hours: 24
+  tags: [card, virtual, request]
+
+- intent: order_physical_card
+  department: Cards
+  priority: P3
+  sla_hours: 24
+  tags: [card, order, physical]
+
+- intent: virtual_card_not_working
+  department: Cards
+  priority: P2
+  sla_hours: 4
+  tags: [card, virtual, failure]
+
+- intent: visa_or_mastercard
+  department: Cards
+  priority: P3
+  sla_hours: 24
+  tags: [card, network, info]
+
+- intent: disposable_card_limits
+  department: Cards
+  priority: P3
+  sla_hours: 24
+  tags: [card, limits, disposable]
+
+- intent: supported_cards_and_currencies
+  department: Cards
+  priority: P3
+  sla_hours: 48
+  tags: [card, currency, info]
+
+- intent: apple_pay_or_google_pay
+  department: Cards
+  priority: P3
+  sla_hours: 24
+  tags: [card, wallet, info]
+
+- intent: card_payment_fee_charged
+  department: Cards
+  priority: P2
+  sla_hours: 12
+  tags: [card, fee, charge]
+
+- intent: card_payment_wrong_exchange_rate
+  department: Cards
+  priority: P2
+  sla_hours: 12
+  tags: [card, fx, dispute]
+
+- intent: declined_card_payment
+  department: Cards
+  priority: P2
+  sla_hours: 4
+  tags: [card, declined, payment]
+
+- intent: pending_card_payment
+  department: Cards
+  priority: P3
+  sla_hours: 24
+  tags: [card, pending, payment]
+
+- intent: reverted_card_payment?
+  department: Cards
+  priority: P2
+  sla_hours: 12
+  tags: [card, refund, payment]
+
+# ---------------- Transfers --------------------------------------------
+- intent: beneficiary_not_allowed
+  department: Transfers
+  priority: P2
+  sla_hours: 8
+  tags: [transfer, beneficiary, blocked]
+
+- intent: cancel_transfer
+  department: Transfers
+  priority: P2
+  sla_hours: 4
+  tags: [transfer, cancel, urgent]
+
+- intent: declined_transfer
+  department: Transfers
+  priority: P2
+  sla_hours: 8
+  tags: [transfer, declined, dispute]
+
+- intent: failed_transfer
+  department: Transfers
+  priority: P2
+  sla_hours: 8
+  tags: [transfer, failed, dispute]
+
+- intent: pending_transfer
+  department: Transfers
+  priority: P3
+  sla_hours: 24
+  tags: [transfer, pending, status]
+
+- intent: transfer_fee_charged
+  department: Transfers
+  priority: P2
+  sla_hours: 12
+  tags: [transfer, fee, charge]
+
+- intent: transfer_into_account
+  department: Transfers
+  priority: P3
+  sla_hours: 24
+  tags: [transfer, incoming, info]
+
+- intent: transfer_not_received_by_recipient
+  department: Transfers
+  priority: P2
+  sla_hours: 8
+  tags: [transfer, recipient, dispute]
+
+- intent: transfer_timing
+  department: Transfers
+  priority: P3
+  sla_hours: 24
+  tags: [transfer, timing, info]
+
+- intent: receiving_money
+  department: Transfers
+  priority: P3
+  sla_hours: 24
+  tags: [transfer, receive, info]
+
+- intent: balance_not_updated_after_bank_transfer
+  department: Transfers
+  priority: P2
+  sla_hours: 12
+  tags: [transfer, balance, dispute]
+
+# ---------------- Account ----------------------------------------------
+- intent: edit_personal_details
+  department: Account
+  priority: P3
+  sla_hours: 24
+  tags: [account, profile, update]
+
+- intent: terminate_account
+  department: Account
+  priority: P2
+  sla_hours: 24
+  tags: [account, closure, request]
+
+- intent: age_limit
+  department: Account
+  priority: P3
+  sla_hours: 48
+  tags: [account, eligibility, info]
+
+- intent: country_support
+  department: Account
+  priority: P3
+  sla_hours: 48
+  tags: [account, region, info]
+
+- intent: fiat_currency_support
+  department: Account
+  priority: P3
+  sla_hours: 48
+  tags: [account, currency, info]
+
+- intent: balance_not_updated_after_cheque_or_cash_deposit
+  department: Account
+  priority: P2
+  sla_hours: 12
+  tags: [account, deposit, balance]
+
+- intent: extra_charge_on_statement
+  department: Account
+  priority: P2
+  sla_hours: 12
+  tags: [account, charge, dispute]
+
+- intent: transaction_charged_twice
+  department: Account
+  priority: P2
+  sla_hours: 8
+  tags: [account, duplicate, dispute]
+
+- intent: Refund_not_showing_up
+  department: Account
+  priority: P2
+  sla_hours: 12
+  tags: [account, refund, dispute]
+
+- intent: request_refund
+  department: Account
+  priority: P2
+  sla_hours: 12
+  tags: [account, refund, request]
+
+- intent: exchange_charge
+  department: Account
+  priority: P3
+  sla_hours: 24
+  tags: [account, fx, fee]
+
+- intent: exchange_rate
+  department: Account
+  priority: P3
+  sla_hours: 24
+  tags: [account, fx, info]
+
+- intent: exchange_via_app
+  department: Account
+  priority: P3
+  sla_hours: 24
+  tags: [account, fx, info]
+
+- intent: wrong_exchange_rate_for_cash_withdrawal
+  department: Account
+  priority: P2
+  sla_hours: 12
+  tags: [withdrawal, fx, dispute]
+
+- intent: wrong_amount_of_cash_received
+  department: Account
+  priority: P2
+  sla_hours: 8
+  tags: [withdrawal, atm, dispute]
+
+- intent: cash_withdrawal_charge
+  department: Account
+  priority: P3
+  sla_hours: 24
+  tags: [withdrawal, fee, info]
+
+- intent: declined_cash_withdrawal
+  department: Account
+  priority: P2
+  sla_hours: 4
+  tags: [withdrawal, declined, dispute]
+
+- intent: pending_cash_withdrawal
+  department: Account
+  priority: P3
+  sla_hours: 24
+  tags: [withdrawal, pending, status]
+
+- intent: atm_support
+  department: Account
+  priority: P3
+  sla_hours: 24
+  tags: [atm, support, info]
+
+# ---------------- Top-ups ----------------------------------------------
+- intent: automatic_top_up
+  department: Top-ups
+  priority: P3
+  sla_hours: 24
+  tags: [top-up, automatic, info]
+
+- intent: pending_top_up
+  department: Top-ups
+  priority: P3
+  sla_hours: 24
+  tags: [top-up, pending, status]
+
+- intent: top_up_by_bank_transfer_charge
+  department: Top-ups
+  priority: P3
+  sla_hours: 24
+  tags: [top-up, fee, info]
+
+- intent: top_up_by_card_charge
+  department: Top-ups
+  priority: P3
+  sla_hours: 24
+  tags: [top-up, fee, info]
+
+- intent: top_up_by_cash_or_cheque
+  department: Top-ups
+  priority: P3
+  sla_hours: 24
+  tags: [top-up, deposit, info]
+
+- intent: top_up_failed
+  department: Top-ups
+  priority: P2
+  sla_hours: 8
+  tags: [top-up, failed, dispute]
+
+- intent: top_up_limits
+  department: Top-ups
+  priority: P3
+  sla_hours: 24
+  tags: [top-up, limits, info]
+
+- intent: top_up_reverted
+  department: Top-ups
+  priority: P2
+  sla_hours: 12
+  tags: [top-up, reverted, dispute]
+
+- intent: topping_up_by_card
+  department: Top-ups
+  priority: P3
+  sla_hours: 24
+  tags: [top-up, card, info]
+
+- intent: verify_top_up
+  department: Top-ups
+  priority: P3
+  sla_hours: 24
+  tags: [top-up, verification, info]
+
+# ---------------- General / Verification -------------------------------
+- intent: unable_to_verify_identity
+  department: General
+  priority: P2
+  sla_hours: 8
+  tags: [verification, identity, blocked]
+
+- intent: verify_my_identity
+  department: General
+  priority: P3
+  sla_hours: 24
+  tags: [verification, identity, info]
+
+- intent: verify_source_of_funds
+  department: General
+  priority: P3
+  sla_hours: 48
+  tags: [verification, compliance, info]
+
+- intent: why_verify_identity
+  department: General
+  priority: P3
+  sla_hours: 48
+  tags: [verification, info]
