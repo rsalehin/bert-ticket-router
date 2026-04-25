@@ -280,3 +280,99 @@ class TestTokenizeBatch:
         assert out["input_ids"] == []
         assert out["attention_mask"] == []
         assert list(out["label"]) == []
+
+
+# ---------- T-010: make_dataloaders ----------
+
+
+@pytest.mark.slow
+class TestMakeDataloaders:
+    """DataLoader factory built on top of tokenize_batch."""
+
+    def test_returns_train_val_test(self, bert_tokenizer: object) -> None:
+        from src.data import make_dataloaders
+
+        ds = _toy_dataset(num_classes=5, per_class=20)
+        splits = make_splits(ds, val_ratio=0.1, seed=42)
+        loaders = make_dataloaders(splits, bert_tokenizer, batch_size=4, max_len=16)
+
+        assert set(loaders.keys()) == {"train", "val", "test"}
+
+    def test_batch_keys_and_shapes(self, bert_tokenizer: object) -> None:
+        from src.data import make_dataloaders
+
+        ds = _toy_dataset(num_classes=5, per_class=20)
+        splits = make_splits(ds, val_ratio=0.1, seed=42)
+        loaders = make_dataloaders(splits, bert_tokenizer, batch_size=4, max_len=16)
+
+        batch = next(iter(loaders["train"]))
+        assert set(batch.keys()) == {"input_ids", "attention_mask", "labels"}
+        assert batch["input_ids"].shape[1] == 16
+        assert batch["attention_mask"].shape[1] == 16
+        assert batch["input_ids"].shape[0] <= 4  # batch_size or remainder
+        assert batch["labels"].shape[0] == batch["input_ids"].shape[0]
+
+    def test_tensors_are_torch(self, bert_tokenizer: object) -> None:
+        import torch
+
+        from src.data import make_dataloaders
+
+        ds = _toy_dataset(num_classes=5, per_class=20)
+        splits = make_splits(ds, val_ratio=0.1, seed=42)
+        loaders = make_dataloaders(splits, bert_tokenizer, batch_size=4, max_len=16)
+
+        batch = next(iter(loaders["val"]))
+        assert isinstance(batch["input_ids"], torch.Tensor)
+        assert isinstance(batch["attention_mask"], torch.Tensor)
+        assert isinstance(batch["labels"], torch.Tensor)
+        assert batch["input_ids"].dtype == torch.long
+        assert batch["labels"].dtype == torch.long
+
+    def test_total_samples_per_loader_equal_split_size(self, bert_tokenizer: object) -> None:
+        from src.data import make_dataloaders
+
+        ds = _toy_dataset(num_classes=5, per_class=20)
+        splits = make_splits(ds, val_ratio=0.1, seed=42)
+        loaders = make_dataloaders(splits, bert_tokenizer, batch_size=4, max_len=16)
+
+        for name in ("train", "val", "test"):
+            total = sum(b["input_ids"].shape[0] for b in loaders[name])
+            assert total == len(splits[name])
+
+    def test_train_loader_shuffles(self, bert_tokenizer: object) -> None:
+        """Two independent iterations of the train loader should yield different orders."""
+        from src.data import make_dataloaders
+
+        ds = _toy_dataset(num_classes=5, per_class=20)
+        splits = make_splits(ds, val_ratio=0.1, seed=42)
+        loaders = make_dataloaders(splits, bert_tokenizer, batch_size=4, max_len=16)
+
+        # Collect label sequences across two passes
+        first = [int(x) for b in loaders["train"] for x in b["labels"].tolist()]
+        second = [int(x) for b in loaders["train"] for x in b["labels"].tolist()]
+
+        # Same multiset (same data), different order (shuffled)
+        assert sorted(first) == sorted(second)
+        assert first != second
+
+    def test_val_loader_does_not_shuffle(self, bert_tokenizer: object) -> None:
+        from src.data import make_dataloaders
+
+        ds = _toy_dataset(num_classes=5, per_class=20)
+        splits = make_splits(ds, val_ratio=0.1, seed=42)
+        loaders = make_dataloaders(splits, bert_tokenizer, batch_size=4, max_len=16)
+
+        first = [int(x) for b in loaders["val"] for x in b["labels"].tolist()]
+        second = [int(x) for b in loaders["val"] for x in b["labels"].tolist()]
+        assert first == second
+
+    def test_test_loader_does_not_shuffle(self, bert_tokenizer: object) -> None:
+        from src.data import make_dataloaders
+
+        ds = _toy_dataset(num_classes=5, per_class=20)
+        splits = make_splits(ds, val_ratio=0.1, seed=42)
+        loaders = make_dataloaders(splits, bert_tokenizer, batch_size=4, max_len=16)
+
+        first = [int(x) for b in loaders["test"] for x in b["labels"].tolist()]
+        second = [int(x) for b in loaders["test"] for x in b["labels"].tolist()]
+        assert first == second

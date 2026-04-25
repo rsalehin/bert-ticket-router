@@ -11,7 +11,10 @@ tokenization, and DataLoader helpers.
 
 from __future__ import annotations
 
+from functools import partial
+
 from datasets import DatasetDict, load_dataset
+from torch.utils.data import DataLoader
 
 # Canonical, ordered list of 77 banking77 intent labels.
 # Matches `ClassLabel.names` from `datasets.load_dataset("PolyAI/banking77")`.
@@ -201,3 +204,47 @@ def tokenize_batch(
         "attention_mask": encoded["attention_mask"],
         "label": examples["label"],
     }
+
+
+def make_dataloaders(
+    splits: DatasetDict,
+    tokenizer: object,
+    batch_size: int = 64,
+    max_len: int = 64,
+) -> dict[str, DataLoader[dict[str, object]]]:
+    """Build PyTorch DataLoaders for train, val, test.
+
+    Tokenizes each split via `dataset.map(tokenize_batch, batched=True)`,
+    sets the format to `torch`, and wraps in a `DataLoader`. Train is
+    shuffled; val and test are not. Each batch yields a dict with keys
+    `input_ids`, `attention_mask`, and `labels` (HuggingFace convention,
+    plural â€” matches the `labels` kwarg expected by HF training code).
+
+    Args:
+        splits: DatasetDict with `train`, `val`, `test` keys (output of
+            `make_splits`).
+        tokenizer: A HuggingFace tokenizer.
+        batch_size: Batch size for all three loaders.
+        max_len: Fixed sequence length for tokenization.
+
+    Returns:
+        Dict with `train`, `val`, `test` -> `DataLoader`.
+    """
+    tokenize_fn = partial(tokenize_batch, tokenizer=tokenizer, max_len=max_len)
+
+    loaders: dict[str, DataLoader[dict[str, object]]] = {}
+    for name in ("train", "val", "test"):
+        ds = splits[name].map(
+            tokenize_fn,
+            batched=True,
+            remove_columns=[c for c in splits[name].column_names if c != "label"],
+        )
+        ds = ds.rename_column("label", "labels")
+        ds.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+        loaders[name] = DataLoader(
+            ds,
+            batch_size=batch_size,
+            shuffle=(name == "train"),
+            num_workers=0,
+        )
+    return loaders
