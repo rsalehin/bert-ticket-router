@@ -118,3 +118,45 @@ def load_banking77() -> DatasetDict:
     Each row has keys `text: str` and `label: int in [0, 76]`.
     """
     return load_dataset("PolyAI/banking77", trust_remote_code=True)
+
+
+def make_splits(
+    dataset: DatasetDict,
+    val_ratio: float = 0.1,
+    seed: int = 42,
+) -> DatasetDict:
+    """Carve a stratified validation split from the train split.
+
+    Args:
+        dataset: A DatasetDict with `train` and `test` splits, where each row
+            has a `label` column (typed as `ClassLabel`). The result of
+            `load_banking77()` satisfies this.
+        val_ratio: Fraction of the original train split to use for validation.
+            Must be strictly between 0 and 1.
+        seed: Random seed for the stratified split. Determines shuffling.
+
+    Returns:
+        A new DatasetDict with `train`, `val`, `test`. Stratification is
+        performed on the `label` column, so each class is proportionally
+        represented in both `train` and `val`. The `test` split is passed
+        through unchanged.
+
+    Raises:
+        ValueError: If `val_ratio` is not in the open interval (0, 1).
+    """
+    if not 0.0 < val_ratio < 1.0:
+        raise ValueError(f"val_ratio must be strictly between 0 and 1, got {val_ratio!r}")
+
+    split = dataset["train"].train_test_split(
+        test_size=val_ratio,
+        stratify_by_column="label",
+        seed=seed,
+    )
+
+    return DatasetDict(
+        {
+            "train": split["train"],
+            "val": split["test"],
+            "test": dataset["test"],
+        }
+    )
