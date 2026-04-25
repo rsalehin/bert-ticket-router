@@ -170,3 +170,122 @@ class TestSaveReport:
         save_report(metrics, nested)
         assert (nested / "metrics.json").exists()
         assert (nested / "confusion_matrix.png").exists()
+
+
+# ---------- evaluate (full eval loop) ----------
+
+
+def _tiny_eval_dataloader(
+    num_classes: int = 4,
+    num_samples: int = 16,
+    seq_len: int = 16,
+    batch_size: int = 4,
+) -> object:
+    """Build a deterministic toy DataLoader with the schema expected by `evaluate`."""
+    import torch
+    from torch.utils.data import DataLoader
+
+    torch.manual_seed(0)
+    input_ids = torch.zeros(num_samples, seq_len, dtype=torch.long)
+    attention_mask = torch.ones(num_samples, seq_len, dtype=torch.long)
+    labels = torch.arange(num_samples) % num_classes
+
+    class _DictDataset(torch.utils.data.Dataset):  # type: ignore[type-arg]
+        def __init__(self, ids, mask, lab):
+            self.ids = ids
+            self.mask = mask
+            self.lab = lab
+
+        def __len__(self) -> int:
+            return self.ids.shape[0]
+
+        def __getitem__(self, idx: int) -> dict:
+            return {
+                "input_ids": self.ids[idx],
+                "attention_mask": self.mask[idx],
+                "labels": self.lab[idx],
+            }
+
+    return DataLoader(_DictDataset(input_ids, attention_mask, labels), batch_size=batch_size)
+
+
+@pytest.mark.slow
+class TestEvaluateLoop:
+    """End-to-end eval pass on a tiny BERT + toy dataloader."""
+
+    def test_returns_metrics_dict_with_expected_keys(self, tiny_bert_name: str) -> None:
+        from src.evaluate import evaluate
+        from src.model import BertClassifier
+
+        num_classes = 4
+        model = BertClassifier(base_model_name=tiny_bert_name, num_labels=num_classes)
+        loader = _tiny_eval_dataloader(num_classes=num_classes, num_samples=16, batch_size=4)
+        labels = [f"intent_{i}" for i in range(num_classes)]
+
+        metrics = evaluate(model, loader, device="cpu", label_names=labels)
+
+        for k in (
+            "accuracy",
+            "macro_f1",
+            "top1_accuracy",
+            "top3_accuracy",
+            "top5_accuracy",
+            "per_class",
+            "confusion_matrix",
+            "labels",
+        ):
+            assert k in metrics
+
+    def test_does_not_mutate_model_parameters(self, tiny_bert_name: str) -> None:
+        import torch
+
+        from src.evaluate import evaluate
+        from src.model import BertClassifier
+
+        num_classes = 4
+        model = BertClassifier(base_model_name=tiny_bert_name, num_labels=num_classes)
+        loader = _tiny_eval_dataloader(num_classes=num_classes, num_samples=16, batch_size=4)
+        labels = [f"intent_{i}" for i in range(num_classes)]
+
+        # Snapshot every parameter before
+        before = {name: p.detach().clone() for name, p in model.named_parameters()}
+
+        evaluate(model, loader, device="cpu", label_names=labels)
+
+        # Verify every parameter unchanged
+        for name, p in model.named_parameters():
+            assert torch.equal(before[name], p.detach()), f"parameter {name} changed"
+
+    def test_total_predictions_equals_dataset_size(self, tiny_bert_name: str) -> None:
+        from src.evaluate import evaluate
+        from src.model import BertClassifier
+
+        num_classes = 4
+        num_samples = 17  # not divisible by batch_size — checks last partial batch
+        model = BertClassifier(base_model_name=tiny_bert_name, num_labels=num_classes)
+        loader = _tiny_eval_dataloader(
+            num_classes=num_classes, num_samples=num_samples, batch_size=4
+        )
+        labels = [f"intent_{i}" for i in range(num_classes)]
+
+        metrics = evaluate(model, loader, device="cpu", label_names=labels)
+
+        cm = metrics["confusion_matrix"]
+        total = sum(sum(row) for row in cm)
+        assert total == num_samples
+
+    def test_returns_to_train_mode_if_was_training(self, tiny_bert_name: str) -> None:
+        """`evaluate` may flip model to eval(); it must restore the original mode."""
+        from src.evaluate import evaluate
+        from src.model import BertClassifier
+
+        num_classes = 4
+        model = BertClassifier(base_model_name=tiny_bert_name, num_labels=num_classes)
+        model.train()  # caller had it in training mode
+
+        loader = _tiny_eval_dataloader(num_classes=num_classes, num_samples=8, batch_size=4)
+        labels = [f"intent_{i}" for i in range(num_classes)]
+
+        evaluate(model, loader, device="cpu", label_names=labels)
+
+        assert model.training is True  # restored

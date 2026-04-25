@@ -3,7 +3,7 @@
 `compute_metrics` produces a single dictionary summarizing classifier quality
 on a held-out split. `save_report` persists that dictionary as `metrics.json`
 plus a `confusion_matrix.png` plot. Both are pure NumPy / scikit-learn /
-matplotlib â€” no model dependency.
+matplotlib Ã¢â‚¬â€ no model dependency.
 
 The metrics dict has this shape (mostly self-describing):
 
@@ -158,3 +158,63 @@ def save_report(metrics: dict[str, Any], out_dir: Path | str) -> None:
     fig.tight_layout()
     fig.savefig(out_dir / "confusion_matrix.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+
+def evaluate(
+    model: Any,
+    dataloader: Any,
+    device: str,
+    label_names: list[str],
+) -> dict[str, Any]:
+    """Run a full evaluation pass and return metrics.
+
+    Iterates the dataloader once with the model in eval mode under
+    `torch.inference_mode()`, collecting predicted classes and class
+    probabilities. The model's training-mode flag is restored on return,
+    so callers in the middle of a training loop are unaffected.
+
+    Args:
+        model: A torch `nn.Module` whose `forward(input_ids, attention_mask)`
+            returns logits of shape `[batch, num_labels]`.
+        dataloader: A PyTorch `DataLoader` yielding dicts with keys
+            `input_ids`, `attention_mask`, `labels`.
+        device: Device string accepted by `torch.device(...)`.
+        label_names: Ordered list of class names; passed through to
+            `compute_metrics`.
+
+    Returns:
+        Metrics dict (see `compute_metrics`).
+    """
+    import torch
+
+    was_training = model.training
+    model.eval()
+    model.to(device)
+
+    all_preds: list[np.ndarray[Any, np.dtype[Any]]] = []
+    all_probs: list[np.ndarray[Any, np.dtype[Any]]] = []
+    all_truth: list[np.ndarray[Any, np.dtype[Any]]] = []
+
+    try:
+        with torch.inference_mode():
+            for batch in dataloader:
+                input_ids = batch["input_ids"].to(device)
+                attention_mask = batch["attention_mask"].to(device)
+                labels = batch["labels"]
+
+                logits = model(input_ids=input_ids, attention_mask=attention_mask)
+                probs = torch.softmax(logits, dim=-1)
+                preds = probs.argmax(dim=-1)
+
+                all_preds.append(preds.detach().cpu().numpy())
+                all_probs.append(probs.detach().cpu().numpy())
+                all_truth.append(labels.detach().cpu().numpy())
+    finally:
+        if was_training:
+            model.train()
+
+    y_pred = np.concatenate(all_preds)
+    y_probs = np.concatenate(all_probs)
+    y_true = np.concatenate(all_truth)
+
+    return compute_metrics(y_true, y_pred, y_probs, label_names)
