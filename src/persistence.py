@@ -16,7 +16,9 @@ the codebase only sees `Ticket`.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from typing import Literal, cast
 
 from sqlalchemy import (
     DateTime,
@@ -27,9 +29,14 @@ from sqlalchemy import (
     String,
     TypeDecorator,
     create_engine,
+    select,
 )
 from sqlalchemy.engine import Dialect
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+
+from src.errors import PersistenceError
+from src.schemas import Prediction, Ticket
 
 
 class UtcDateTime(TypeDecorator[datetime]):
@@ -132,8 +139,95 @@ def make_session(engine: Engine) -> sessionmaker[Session]:
 def init_db(engine: Engine) -> None:
     """Idempotently create all tables on the given engine.
 
-    Equivalent to running the Alembic baseline migration but faster Ã¢â‚¬â€ used
+    Equivalent to running the Alembic baseline migration but faster ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â used
     in tests and as a first-run convenience. Production deploys should use
     `alembic upgrade head` for proper migration tracking.
     """
     Base.metadata.create_all(engine)
+
+
+# ---------------------------------------------------------------------------
+# CRUD operations
+# ---------------------------------------------------------------------------
+
+
+def _row_to_ticket(row: TicketRow) -> Ticket:
+    """Convert a SQLAlchemy `TicketRow` to a Pydantic `Ticket`.
+
+    Only the routing fields are surfaced; audit columns (message, intent,
+    confidence, top_k_json, model_version) remain in the DB and are not
+    exposed via the persistence API.
+    """
+    tags: list[str] = json.loads(row.tags_json)
+    return Ticket(
+        id=row.id,
+        department=row.department,
+        priority=cast(Literal["P1", "P2", "P3"], row.priority),
+        sla_hours=row.sla_hours,
+        tags=tags,
+        created_at=row.created_at,
+    )
+
+
+def save_ticket(
+    session: Session,
+    ticket: Ticket,
+    *,
+    message: str,
+    prediction: Prediction,
+    model_version: str,
+) -> Ticket:
+    """Persist a ticket plus the prediction context that produced it.
+
+    Args:
+        session: An active SQLAlchemy session.
+        ticket: The Pydantic `Ticket` (routing fields, id, created_at).
+        message: The original customer message; stored on the audit column.
+        prediction: The full classifier prediction; `top_k` and `intent`
+            and `confidence` are stored as audit columns.
+        model_version: The `model_version` string from the classifier; stored
+            on the audit column.
+
+    Returns:
+        The same `Ticket` back, after a successful commit.
+
+    Raises:
+        PersistenceError: If the database operation fails.
+    """
+    top_k_payload = [score.model_dump() for score in prediction.top_k]
+    row = TicketRow(
+        id=ticket.id,
+        message=message,
+        intent=prediction.intent,
+        confidence=prediction.confidence,
+        top_k_json=json.dumps(top_k_payload),
+        department=ticket.department,
+        priority=ticket.priority,
+        sla_hours=ticket.sla_hours,
+        tags_json=json.dumps(list(ticket.tags)),
+        model_version=model_version,
+        created_at=ticket.created_at,
+    )
+    try:
+        session.add(row)
+        session.commit()
+    except SQLAlchemyError as exc:
+        session.rollback()
+        raise PersistenceError(f"Failed to save ticket {ticket.id!r}: {exc}") from exc
+
+    return ticket
+
+
+def get_ticket(session: Session, ticket_id: str) -> Ticket | None:
+    """Look up a ticket by id. Returns `None` if not found."""
+    row = session.get(TicketRow, ticket_id)
+    if row is None:
+        return None
+    return _row_to_ticket(row)
+
+
+def list_tickets(session: Session, limit: int = 50) -> list[Ticket]:
+    """Return the `limit` most recently created tickets, newest first."""
+    stmt = select(TicketRow).order_by(TicketRow.created_at.desc()).limit(limit)
+    rows = session.execute(stmt).scalars().all()
+    return [_row_to_ticket(row) for row in rows]
